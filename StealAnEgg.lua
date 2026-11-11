@@ -1,113 +1,147 @@
 
--- STEAL AN EGG
--- ServerScriptService > EggSystemServer
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
-local remote = ReplicatedStorage:FindFirstChild("EggAction")
-if not remote then
-    remote = Instance.new("RemoteEvent")
-    remote.Name = "EggAction"
-    remote.Parent = ReplicatedStorage
+local Player = Players.LocalPlayer
+local Config = {
+    EggFinder = true,
+    AFKMode = false,
+    AutoEvent = true
+}
+
+local old = game:GetService("CoreGui"):FindFirstChild("EggFinderGUI")
+if old then old:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "EggFinderGUI"
+gui.ResetOnSpawn = false
+
+pcall(function()
+    gui.Parent = game:GetService("CoreGui")
+end)
+
+if not gui.Parent then
+    gui.Parent = Player:WaitForChild("PlayerGui")
 end
 
-local eggsFolder = workspace:WaitForChild("Eggs")
-local eventsFolder = workspace:WaitForChild("Events")
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(260, 260)
+frame.Position = UDim2.new(0.5, -130, 0.4, 0)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+frame.Parent = gui
 
-local cooldowns = {}
+Instance.new("UICorner", frame).CornerRadius =
+    UDim.new(0, 12)
 
-local function getPart(object)
-    if object:IsA("BasePart") then
-        return object
-    end
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 42)
+title.Text = "STEAL AN EGG"
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.BackgroundColor3 = Color3.fromRGB(100,60,200)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.Parent = frame
 
-    if object:IsA("Model") then
-        return object.PrimaryPart
-            or object:FindFirstChildWhichIsA("BasePart", true)
-    end
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -20, 0, 35)
+status.Position = UDim2.fromOffset(10, 48)
+status.Text = "Ready to scan"
+status.TextColor3 = Color3.new(1,1,1)
+status.BackgroundTransparency = 1
+status.Parent = frame
+
+local function makeButton(text, y, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -30, 0, 36)
+    b.Position = UDim2.fromOffset(15, y)
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 13
+    b.TextColor3 = Color3.new(1,1,1)
+    b.BackgroundColor3 = Color3.fromRGB(75,60,130)
+    b.Parent = frame
+
+    Instance.new("UICorner", b).CornerRadius =
+        UDim.new(0, 8)
+
+    b.MouseButton1Click:Connect(callback)
+    return b
 end
 
-local function distance(player, object)
-    local character = player.Character
+local highlights = {}
+
+local function scanEggs()
+    local count = 0
+    local nearestDistance = math.huge
+    local nearestName = "None"
+
+    local character = Player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
-    local part = getPart(object)
 
-    if not root or not part then
-        return math.huge
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") and
+            string.find(string.lower(obj.Name), "egg") then
+
+            local part = obj.PrimaryPart or
+                obj:FindFirstChildWhichIsA("BasePart")
+
+            if part then
+                count += 1
+
+                if Config.EggFinder then
+                    if not highlights[obj] then
+                        local h = Instance.new("Highlight")
+                        h.FillColor = Color3.fromRGB(255, 210, 0)
+                        h.OutlineColor = Color3.new(1,1,1)
+                        h.Adornee = obj
+                        h.Parent = gui
+                        highlights[obj] = h
+                    end
+                end
+
+                if root then
+                    local distance =
+                        (root.Position - part.Position).Magnitude
+
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestName = obj.Name
+                    end
+                end
+            end
+        end
     end
 
-    return (root.Position - part.Position).Magnitude
+    status.Text = "Eggs: " .. count ..
+        " | Nearest: " .. nearestName
+
+    return count
 end
 
-Players.PlayerAdded:Connect(function(player)
-    local stats = Instance.new("Folder")
-    stats.Name = "leaderstats"
-    stats.Parent = player
+makeButton("SCAN EGGS", 95, scanEggs)
 
-    local eggs = Instance.new("IntValue")
-    eggs.Name = "Eggs"
-    eggs.Parent = stats
-
-    local points = Instance.new("IntValue")
-    points.Name = "EventPoints"
-    points.Parent = stats
-
-    player:SetAttribute("AFKMode", false)
+makeButton("EGG FINDER: ON", 138, function()
+    Config.EggFinder = not Config.EggFinder
+    scanEggs()
 end)
 
-remote.OnServerEvent:Connect(function(player, action, target)
-    if action == "AFK" then
-        if typeof(target) == "boolean" then
-            player:SetAttribute("AFKMode", target)
-        end
-        return
-    end
+makeButton("AFK MODE: OFF", 181, function()
+    Config.AFKMode = not Config.AFKMode
+end)
 
-    if player:GetAttribute("AFKMode") then
-        return
-    end
+makeButton("SCAN EVENTS", 224, function()
+    local count = 0
 
-    local now = os.clock()
-    cooldowns[player] = cooldowns[player] or {}
-
-    if now - (cooldowns[player][action] or 0) < 1 then
-        return
-    end
-
-    if action == "Steal" then
-        if typeof(target) ~= "Instance" then return end
-        if not target:IsDescendantOf(eggsFolder) then return end
-        if distance(player, target) > 18 then return end
-        if target:GetAttribute("Stolen") then return end
-
-        target:SetAttribute("Stolen", true)
-
-        local stats = player:FindFirstChild("leaderstats")
-        local eggs = stats and stats:FindFirstChild("Eggs")
-
-        if eggs then
-            eggs.Value += 1
-        end
-
-        target:Destroy()
-
-    elseif action == "JoinEvent" then
-        if typeof(target) ~= "Instance" then return end
-        if not target:IsDescendantOf(eventsFolder) then return end
-        if distance(player, target) > 18 then return end
-
-        local stats = player:FindFirstChild("leaderstats")
-        local points = stats and stats:FindFirstChild("EventPoints")
-
-        if points then
-            points.Value += 1
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if string.find(string.lower(obj.Name), "event") then
+            count += 1
+            print("Event found:", obj:GetFullName())
         end
     end
 
-    cooldowns[player][action] = now
+    status.Text = "Events found: " .. count
 end)
 
-Players.PlayerRemoving:Connect(function(player)
-    cooldowns[player] = nil
-end)
+print("STEAL AN EGG GUI LOADED")
